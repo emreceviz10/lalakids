@@ -1,7 +1,7 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
     try {
         let response = NextResponse.next({
             request: {
@@ -13,7 +13,7 @@ export async function middleware(request: NextRequest) {
         const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
         if (!supabaseUrl || !supabaseKey) {
-            console.error('Middleware: Missing Supabase environment variables')
+            console.error('Proxy: Missing Supabase environment variables')
             return response
         }
 
@@ -39,8 +39,8 @@ export async function middleware(request: NextRequest) {
 
         return response
     } catch (e) {
-        console.error('Middleware error:', e)
-        // If middleware fails, we return the default response to avoid breaking the app
+        console.error('Proxy error:', e)
+        // If proxy fails, we return the default response to avoid breaking the app
         return NextResponse.next({
             request: {
                 headers: request.headers,
