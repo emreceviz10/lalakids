@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 export default function DashboardLayout({
     children,
@@ -21,10 +22,10 @@ export default function DashboardLayout({
     };
 
     const navItems = [
-        { href: "/parent", label: "Ana Sayfa", icon: "dashboard" },
-        { href: "/parent/courses", label: "Materyaller", icon: "library_books" },
-        { href: "/parent/students", label: "Öğrenci Profili", icon: "face" },
-        { href: "/parent/settings", label: "Ayarlar", icon: "settings" },
+        { href: "/dashboard", label: "Ana Sayfa", icon: "dashboard" },
+        { href: "/dashboard/courses", label: "Materyaller", icon: "library_books" },
+        { href: "/dashboard/students", label: "Öğrenci Profili", icon: "face" },
+        { href: "/dashboard/settings", label: "Ayarlar", icon: "settings" },
     ];
 
     return (
@@ -60,7 +61,11 @@ export default function DashboardLayout({
                     })}
                 </nav>
 
-                <div className="p-4 border-t border-slate-100 dark:border-slate-700">
+                <div className="p-4 border-t border-slate-100 dark:border-slate-700 space-y-2">
+                    <div className="flex items-center justify-between px-4 pb-2">
+                        <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Tema</span>
+                        <ThemeToggle />
+                    </div>
                     <button
                         onClick={handleSignOut}
                         className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all font-medium"
@@ -80,9 +85,12 @@ export default function DashboardLayout({
                         </div>
                         <span className="font-bold text-slate-800 dark:text-white">Lala Kids</span>
                     </div>
-                    <button className="p-2 text-slate-500">
-                        <span className="material-symbols-outlined">menu</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <ThemeToggle />
+                        <button className="p-2 text-slate-500">
+                            <span className="material-symbols-outlined">menu</span>
+                        </button>
+                    </div>
                 </header>
 
                 <main className="flex-1 p-4 sm:p-8 overflow-y-auto">

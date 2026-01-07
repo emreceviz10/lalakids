@@ -1,6 +1,7 @@
 
 import Link from 'next/link';
 import { ArrowRight, BookOpen, Sparkles, Brain, Rocket } from 'lucide-react';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 export default function Home() {
   return (
@@ -12,6 +13,7 @@ export default function Home() {
           <span className="text-gray-900 dark:text-white font-bold">LalaKids</span>
         </Link>
         <nav className="flex items-center gap-4 sm:gap-6">
+          <ThemeToggle />
           <Link className="text-sm font-semibold leading-6 text-gray-900 dark:text-gray-100 hover:text-primary transition-colors" href="/login">
             Log in
           </Link>

@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { Lexend, Noto_Sans } from "next/font/google";
+import { Lexend, Nunito } from "next/font/google";
+import { ThemeProvider } from "@/components/providers/theme-provider";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
 const lexend = Lexend({ subsets: ["latin"], variable: "--font-lexend" });
-const notoSans = Noto_Sans({ subsets: ["latin"], variable: "--font-noto-sans" });
+const nunito = Nunito({ subsets: ["latin"], variable: "--font-nunito" });
 
 export const metadata: Metadata = {
   title: "Lala Kids",
@@ -22,10 +23,17 @@ export default function RootLayout({
         className={cn(
           "min-h-screen bg-background-light dark:bg-background-dark font-sans antialiased",
           lexend.variable,
-          notoSans.variable
+          nunito.variable
         )}
       >
-        {children}
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

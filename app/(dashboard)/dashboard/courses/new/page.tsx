@@ -69,7 +69,7 @@ export default function NewCoursePage() {
                 throw new Error(courseErr.error || "Failed to create course");
             }
 
-            router.push("/parent");
+            router.push("/dashboard");
             router.refresh();
 
         } catch (err: any) {

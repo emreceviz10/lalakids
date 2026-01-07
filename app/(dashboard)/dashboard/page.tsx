@@ -11,7 +11,7 @@ export default function ParentDashboardPage() {
                     <p className="text-slate-500 font-medium">Çocuğunuzun öğrenme yolculuğunu buradan takip edebilirsiniz.</p>
                 </div>
                 <Link
-                    href="/parent/orders/new"
+                    href="/dashboard/orders/new"
                     className="px-6 py-3 bg-primary hover:bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center justify-center gap-2 w-full sm:w-auto"
                 >
                     <span className="material-symbols-outlined">add_circle</span>

@@ -1,42 +1,71 @@
 @import "tailwindcss";
+@config "../tailwind.config.ts";
+
+/*
+  In Tailwind v4, theme variables are usually defined in CSS.
+  However, we are linking to the legacy/compat config file.
+  We can also add additional base styles or utilities here.
+*/
 
 @theme {
-  --color-background-light: #f6f7f8;
+  /*
+    Re-declaring key theme variables if needed for CSS usage, 
+    though config should cover utilities. 
+    Explicitly defining CSS variables for globals that might be missed.
+  */
+  --color-background-light: #f8fafc;
   --color-background-dark: #0f172a;
-  --color-primary: #8b5cf6;
-  --color-primary-hover: #7c3aed;
 
-  --font-lexend: Lexend, sans-serif;
-  --font-noto: "Noto Sans", sans-serif;
+  --color-primary: #3b82f6;
+  --color-primary-dark: #2563eb;
+  --color-primary-light: #60a5fa;
+  --color-primary-50: #eff6ff;
 
-  --radius-lg: 0.5rem;
-  --radius-md: calc(0.5rem - 2px);
-  --radius-sm: calc(0.5rem - 4px);
+  --color-secondary: #8b5cf6;
+  --color-secondary-dark: #7c3aed;
+  --color-secondary-light: #a78bfa;
+
+  --color-success: #22c55e;
+  --color-error: #ef4444;
+  --color-warning: #f59e0b;
+  --color-streak: #f97316;
 }
-
-/* 
-  In Tailwind v4, we can defining theme variables in CSS.
-  However, we still have tailwind.config.ts. 
-  To allow @apply to work with standard utilities, the @import is crucial.
-*/
 
 @layer base {
   :root {
-    --background: 246 100% 97%;
-    --foreground: 222 47% 11%;
+    /* Exposing these as standard CSS variables for non-Tailwind usage if any */
+    --background: 248 250 252;
+    /* Slate 50 */
+    --foreground: 15 23 42;
+    /* Slate 900 */
+  }
+
+  body {
+    @apply bg-background-light dark:bg-background-dark text-slate-900 dark:text-white transition-colors duration-300;
   }
 }
 
 @layer components {
+
+  /* Enhanced Glass Panel */
   .glass-panel {
-    @apply bg-white/90 backdrop-blur-md border border-white/20 shadow-xl;
+    @apply bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-white/20 dark:border-slate-700/30 shadow-card;
   }
 
   .glass-input {
-    @apply bg-white/50 border border-slate-200 focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-200;
+    @apply bg-white/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-200 rounded-2xl;
   }
 
-  .glass-button {
-    @apply bg-primary text-white hover:bg-primary/90 shadow-lg hover:shadow-primary/30 transition-all duration-200 active:scale-95;
+  /* 3D Button Utility */
+  .btn-3d {
+    @apply inline-flex items-center justify-center gap-2 font-bold rounded-2xl transition-all duration-200 active:translate-y-1 active:shadow-none;
+  }
+
+  .btn-3d-primary {
+    @apply bg-primary hover:bg-primary-dark text-white shadow-3d-primary;
+  }
+
+  .btn-3d-success {
+    @apply bg-success hover:bg-green-600 text-white shadow-3d-success;
   }
 }

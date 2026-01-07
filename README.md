@@ -34,3 +34,19 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Important Architecture Notes
+
+### Middleware Migration (Fix for 500 Error)
+
+**Fixed: Migrated from `middleware.ts` to `proxy.ts`.**
+
+Next.js 16 deprecated `middleware.ts`, which caused `MIDDLEWARE_INVOCATION_FAILED` (500 error) on the live site. The runtime likely failed to execute the old file convention properly or strictly enforced the new one.
+
+**Solution:**
+- Removed `middleware.ts`.
+- Created `proxy.ts` containing the original logic plus safety checks.
+- This resolved the 500 error and cleared deprecation warnings in the local development server.
+
+**Reference:**
+Please refer to `proxy.ts` for the current middleware/proxy logic.
