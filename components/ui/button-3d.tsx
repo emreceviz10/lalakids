@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 interface Button3DProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
     variant?: "primary" | "success" | "outline" | "ghost";
-    size?: "sm" | "md" | "lg";
+    size?: "sm" | "md" | "lg" | "icon";
     icon?: string; // Material Symbol name
     iconPosition?: "left" | "right";
     loading?: boolean;
@@ -37,6 +37,7 @@ export function Button3D({
         sm: "h-10 px-4 text-sm",
         md: "h-14 px-6 text-base",
         lg: "h-16 px-8 text-lg",
+        icon: "h-10 w-10 p-0 text-base",
     };
 
     return (
