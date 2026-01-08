@@ -22,10 +22,10 @@ export default function DashboardLayout({
     };
 
     const navItems = [
-        { href: "/dashboard", label: "Ana Sayfa", icon: "dashboard" },
-        { href: "/dashboard/courses", label: "Materyaller", icon: "library_books" },
-        { href: "/dashboard/students", label: "Öğrenci Profili", icon: "face" },
-        { href: "/dashboard/settings", label: "Ayarlar", icon: "settings" },
+        { href: "/parent/dashboard", label: "Ana Sayfa", icon: "dashboard" },
+        { href: "/parent/dashboard/courses", label: "Materyaller", icon: "library_books" },
+        { href: "/parent/dashboard/students", label: "Öğrenci Profili", icon: "face" },
+        { href: "/parent/dashboard/settings", label: "Ayarlar", icon: "settings" },
     ];
 
     return (
@@ -98,8 +98,6 @@ export default function DashboardLayout({
                 </main>
             </div>
 
-            {/* Load Material Symbols */}
-            <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
         </div>
     );
 }
