@@ -1,31 +1,33 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { FileText, Image as ImageIcon, Trash2, Loader2, AlertCircle } from 'lucide-react';
+import React, { useEffect, useState, useTransition } from 'react';
+import { FileText, Image as ImageIcon, Trash2, Loader2, AlertCircle, Sparkles, RotateCcw } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { formatFileSize } from '@/lib/utils/fileValidation'; // Assuming we export this or duplicate it
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
+import { processCourseOCR } from '@/app/actions/course-processing';
 
 interface Course {
     id: string;
     title: string;
     original_file_name: string;
     original_file_type: 'pdf' | 'image';
-    status: 'pending' | 'ocr_processing' | 'error' | string;
+    status: 'pending' | 'ocr_processing' | 'analyzing' | 'error' | string;
+    page_count?: number;
+    error_message?: string;
     created_at: string;
-    // add other fields as needed
 }
 
 interface UploadedFilesListProps {
     studentId: string;
-    refreshTrigger?: number; // Prop to trigger refetch
+    refreshTrigger?: number;
 }
 
 export function UploadedFilesList({ studentId, refreshTrigger }: UploadedFilesListProps) {
     const [files, setFiles] = useState<Course[]>([]);
     const [loading, setLoading] = useState(true);
+    const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
+    const [isPending, startTransition] = useTransition();
 
     const fetchFiles = async () => {
         setLoading(true);
@@ -36,7 +38,7 @@ export function UploadedFilesList({ studentId, refreshTrigger }: UploadedFilesLi
             .from('courses')
             .select('*')
             .eq('student_id', studentId)
-            .in('status', ['pending', 'ocr_processing', 'error'])
+            .in('status', ['pending', 'ocr_processing', 'analyzing', 'error'])
             .order('created_at', { ascending: false });
 
         if (error) {
@@ -53,8 +55,19 @@ export function UploadedFilesList({ studentId, refreshTrigger }: UploadedFilesLi
         }
     }, [studentId, refreshTrigger]);
 
+    // Poll for status updates when there are files being processed
+    useEffect(() => {
+        const hasProcessingFiles = files.some(f => f.status === 'ocr_processing');
+        if (!hasProcessingFiles) return;
+
+        const interval = setInterval(() => {
+            fetchFiles();
+        }, 3000); // Poll every 3 seconds
+
+        return () => clearInterval(interval);
+    }, [files, studentId]);
+
     const handleDelete = async (id: string, fileName: string) => {
-        // Optimistic update or waiting? Let's wait for confirmation.
         const supabase = createClient();
         const { error } = await supabase
             .from('courses')
@@ -69,17 +82,125 @@ export function UploadedFilesList({ studentId, refreshTrigger }: UploadedFilesLi
         }
     };
 
-    const getStatusBadge = (status: string) => {
-        switch (status) {
+    const handleProcessOCR = async (courseId: string, fileName: string) => {
+        // Add to processing set for UI feedback
+        setProcessingIds(prev => new Set(prev).add(courseId));
+
+        // Update local state optimistically
+        setFiles(prev => prev.map(f =>
+            f.id === courseId ? { ...f, status: 'ocr_processing' } : f
+        ));
+
+        toast.info("OCR Başlatıldı", {
+            description: `${fileName} işleniyor...`,
+            duration: 5000
+        });
+
+        startTransition(async () => {
+            const result = await processCourseOCR(courseId);
+
+            // Remove from processing set
+            setProcessingIds(prev => {
+                const next = new Set(prev);
+                next.delete(courseId);
+                return next;
+            });
+
+            if (result.success) {
+                toast.success("OCR Tamamlandı! ✨", {
+                    description: result.message,
+                    duration: 5000
+                });
+                // Update local state with new status
+                setFiles(prev => prev.map(f =>
+                    f.id === courseId
+                        ? { ...f, status: 'analyzing', page_count: result.pageCount }
+                        : f
+                ));
+            } else {
+                toast.error("OCR Başarısız", {
+                    description: result.message,
+                    duration: 5000
+                });
+                // Revert to pending state
+                setFiles(prev => prev.map(f =>
+                    f.id === courseId
+                        ? { ...f, status: 'pending', error_message: result.message }
+                        : f
+                ));
+            }
+        });
+    };
+
+    const getStatusBadge = (file: Course) => {
+        const isProcessing = processingIds.has(file.id);
+
+        switch (file.status) {
             case 'pending':
-                return <span className="text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-400 text-xs px-2 py-0.5 rounded-full font-medium">İşlenmeyi Bekliyor</span>;
+                return (
+                    <span className="text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-400 text-xs px-2 py-0.5 rounded-full font-medium">
+                        İşlenmeyi Bekliyor
+                    </span>
+                );
             case 'ocr_processing':
-                return <span className="text-blue-600 bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> İşleniyor...</span>;
+                return (
+                    <span className="text-blue-600 bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        OCR İşleniyor...
+                    </span>
+                );
+            case 'analyzing':
+                return (
+                    <span className="text-purple-600 bg-purple-100 dark:bg-purple-900/30 dark:text-purple-400 text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" />
+                        {file.page_count ? `${file.page_count} sayfa | ` : ''}Analiz Ediliyor
+                    </span>
+                );
             case 'error':
-                return <span className="text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400 text-xs px-2 py-0.5 rounded-full font-medium">Hata Oluştu</span>;
+                return (
+                    <span className="text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400 text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        Hata Oluştu
+                    </span>
+                );
             default:
                 return null;
         }
+    };
+
+    const getActionButton = (file: Course) => {
+        const isProcessing = processingIds.has(file.id) || file.status === 'ocr_processing';
+
+        if (file.status === 'pending' || file.status === 'error') {
+            return (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs font-medium bg-primary/5 border-primary/20 text-primary hover:bg-primary/10 hover:border-primary/30"
+                    onClick={() => handleProcessOCR(file.id, file.original_file_name)}
+                    disabled={isProcessing || isPending}
+                >
+                    {isProcessing ? (
+                        <>
+                            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                            İşleniyor...
+                        </>
+                    ) : file.status === 'error' ? (
+                        <>
+                            <RotateCcw className="w-3 h-3 mr-1" />
+                            Tekrar Dene
+                        </>
+                    ) : (
+                        <>
+                            <Sparkles className="w-3 h-3 mr-1" />
+                            OCR İşle
+                        </>
+                    )}
+                </Button>
+            );
+        }
+
+        return null;
     };
 
     if (loading && files.length === 0) {
@@ -131,27 +252,31 @@ export function UploadedFilesList({ studentId, refreshTrigger }: UploadedFilesLi
                                     {file.original_file_name}
                                 </p>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-xs text-slate-500">
-                                    {/* We don't have file size in the table schema from PRD unfortunately. */}
-                                    {/* PRD Section 3.2.2 shows page_count, but not size. */}
-                                    {/* We'll just show page count if available or skip size for now to be safe. */}
-                                    {/* Or we could have stored it but it wasn't in schema snippet. */}
-                                    {/* Waiting for OCR */}
-                                    {new Date(file.created_at).toLocaleDateString()}
+                                    {new Date(file.created_at).toLocaleDateString('tr-TR')}
                                 </span>
-                                {getStatusBadge(file.status)}
+                                {getStatusBadge(file)}
                             </div>
+                            {file.error_message && file.status === 'error' && (
+                                <p className="text-xs text-red-500 mt-1 truncate">
+                                    {file.error_message}
+                                </p>
+                            )}
                         </div>
 
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="opacity-0 group-hover:opacity-100 h-8 w-8 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
-                            onClick={() => handleDelete(file.id, file.original_file_name)}
-                        >
-                            <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                            {getActionButton(file)}
+
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="opacity-0 group-hover:opacity-100 h-8 w-8 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                                onClick={() => handleDelete(file.id, file.original_file_name)}
+                            >
+                                <Trash2 className="w-4 h-4" />
+                            </Button>
+                        </div>
 
                     </div>
                 ))}
