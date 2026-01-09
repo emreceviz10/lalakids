@@ -53,7 +53,9 @@ const config: Config = {
             fontFamily: {
                 display: ["var(--font-lexend)", "sans-serif"],
                 sans: ["var(--font-nunito)", "sans-serif"],
-                nunito: ["var(--font-nunito)", "sans-serif"], // Explicit alias for A11y
+                nunito: ["var(--font-nunito)", "sans-serif"],
+                lexend: ["var(--font-lexend)", "sans-serif"],
+                poppins: ["var(--font-poppins)", "sans-serif"],
             },
             borderRadius: {
                 lg: "1rem",     // 16px

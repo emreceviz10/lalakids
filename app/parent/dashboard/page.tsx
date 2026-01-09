@@ -1,80 +1,113 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import {
-    getParentChildren,
-    getChildDashboardStats,
-    getChildRecentCourses
-} from '@/lib/queries/parent-dashboard';
-import { ChildSelector } from '@/components/dashboard/child-selector';
 import { ParentDashboardClient } from './client';
+import { EmptyChildState } from './empty-state';
+import { ParentHeader } from '../components/ParentHeader';
 
-/**
- * Parent Dashboard - Server Component
- * PRD 4.9.1: Dashboard Overview with child selector and real stats
- */
-export default async function ParentDashboardPage({
+export default async function ParentDashboard({
     searchParams,
 }: {
-    searchParams: { child?: string };
+    searchParams: { child?: string }
 }) {
     const supabase = await createClient();
 
-    // Check authentication
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) {
+    // 1. Check parent auth
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
         redirect('/login');
     }
 
-    // Get all children
-    const children = await getParentChildren();
+    // 2. Fetch children (using public.users for now)
+    const { data: childProfiles, error: childrenError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('parent_id', user.id)
+        .eq('role', 'student');
 
-    // If no children, show onboarding
-    if (children.length === 0) {
-        return <NoChildrenView />;
+    if (childrenError) {
+        console.error('Error fetching children:', childrenError);
     }
 
-    // Determine active child (from URL param or default to first)
-    const activeChildId = searchParams.child || children[0].id;
-    const activeChild = children.find(c => c.id === activeChildId) || children[0];
+    // 3. Handle Empty State
+    if (!childProfiles || childProfiles.length === 0) {
+        return (
+            <>
+                <ParentHeader />
+                <div className="min-h-screen bg-gray-50 dark:bg-slate-900">
+                    <div className="max-w-7xl mx-auto px-4 py-6 md:px-6 md:py-8 lg:px-8">
+                        <EmptyChildState />
+                    </div>
+                </div>
+            </>
+        );
+    }
 
-    // Fetch stats for active child
-    const stats = await getChildDashboardStats(activeChild.id);
-    const recentCourses = await getChildRecentCourses(activeChild.id);
+    // 4. Determine Active Child
+    const selectedChildId = (await searchParams).child;
+    let activeChild = childProfiles[0];
+
+    if (selectedChildId) {
+        const found = childProfiles.find(c => c.id === selectedChildId);
+        if (found) activeChild = found;
+    }
+
+    // 5. Fetch Real Stats
+    // Active Child ID
+    const childId = activeChild.id;
+
+    // Fetch total courses assigned/completed
+    const { data: courses, error: coursesError } = await supabase
+        .from('courses')
+        .select('id')
+        .eq('student_id', childId);
+
+    // Fetch user XP
+    const { data: childUser, error: userError } = await supabase
+        .from('users')
+        .select('total_xp')
+        .eq('id', childId)
+        .single();
+
+    // Fetch progress for weekly time (last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const { data: progress, error: progressError } = await supabase
+        .from('student_progress')
+        .select('total_time_spent, created_at')
+        .eq('student_id', childId)
+        .gte('created_at', sevenDaysAgo.toISOString());
+
+    // Calculate weekly time
+    const weeklyTimeSeconds = progress?.reduce((total, p) => {
+        return total + (p.total_time_spent || 0);
+    }, 0) || 0;
+
+    const weeklyMinutes = Math.floor(weeklyTimeSeconds / 60);
+    const formattedTime = `${weeklyMinutes}dk`;
+
+    const stats = {
+        totalCourses: courses?.length || 0,
+        weeklyMinutes: formattedTime, // Pass formatted string
+        totalXP: childUser?.total_xp || 0,
+        streak: activeChild.current_streak || 0,
+    };
+
+    const recentCourses: any[] = []; // Still mock for now as requested only stats update
 
     return (
-        <ParentDashboardClient
-            children={children}
-            activeChild={activeChild}
-            stats={stats}
-            recentCourses={recentCourses}
-        />
-    );
-}
-
-/**
- * No children view - prompts parent to add first child
- * PRD 4.1.2: First-time parent experience
- */
-function NoChildrenView() {
-    return (
-        <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-6">
-            <div className="size-24 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center">
-                <span className="text-5xl">👶</span>
+        <>
+            <ParentHeader />
+            <div className="min-h-screen bg-gray-50 dark:bg-slate-900">
+                <div className="max-w-7xl mx-auto px-4 py-6 md:px-6 md:py-8 lg:px-8">
+                    <ParentDashboardClient
+                        childProfiles={childProfiles}
+                        activeChild={activeChild}
+                        stats={stats}
+                        recentCourses={recentCourses}
+                    />
+                </div>
             </div>
-            <div className="text-center space-y-2">
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white">
-                    Hoş Geldiniz! 🎉
-                </h2>
-                <p className="text-slate-600 dark:text-slate-400 max-w-md">
-                    Çocuğunuzun öğrenme yolculuğuna başlamak için önce bir profil oluşturalım.
-                </p>
-            </div>
-            <button
-                className="px-8 py-4 bg-primary hover:bg-primary-dark text-white font-bold rounded-2xl shadow-lg shadow-primary/30 transition-all active:scale-95 flex items-center gap-2"
-            >
-                <span className="material-symbols-outlined">add</span>
-                İlk Çocuk Profilini Oluştur
-            </button>
-        </div>
+        </>
     );
 }

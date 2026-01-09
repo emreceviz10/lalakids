@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
-import { Lexend, Nunito } from "next/font/google";
+import { Lexend, Nunito, Poppins } from "next/font/google";
 import { ThemeProvider } from "@/components/providers/theme-provider";
+import { Toaster } from "sonner";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
 const lexend = Lexend({ subsets: ["latin"], variable: "--font-lexend" });
 const nunito = Nunito({ subsets: ["latin"], variable: "--font-nunito" });
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-poppins"
+});
 
 export const metadata: Metadata = {
   title: "Lala Kids",
@@ -26,7 +32,8 @@ export default function RootLayout({
         className={cn(
           "min-h-screen bg-background-light dark:bg-background-dark font-sans antialiased",
           lexend.variable,
-          nunito.variable
+          nunito.variable,
+          poppins.variable
         )}
       >
         <ThemeProvider
@@ -36,6 +43,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>

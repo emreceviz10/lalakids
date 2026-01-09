@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ChildSelector } from '@/components/dashboard/child-selector';
+import { AddChildModal } from '../components/AddChildModal';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface ClientProps {
-    children: any[];
+    childProfiles: any[];
     activeChild: any;
     stats: any;
     recentCourses: any[];
@@ -17,16 +19,36 @@ interface ClientProps {
  * PRD 4.9.1: Real-time data display with child switching
  */
 export function ParentDashboardClient({
-    children,
+    childProfiles,
     activeChild,
     stats,
     recentCourses
 }: ClientProps) {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const [isAddChildModalOpen, setIsAddChildModalOpen] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+
+    // Optimistic state for active child to feel instant
+    const [optimisticChildId, setOptimisticChildId] = useState(activeChild.id);
+
+    // Sync state when props change (data fetched)
+    useEffect(() => {
+        setIsLoading(false);
+        setOptimisticChildId(activeChild.id);
+    }, [activeChild.id, searchParams]); // searchParams changes when URL changes
+
     const displayName = activeChild.display_name || activeChild.first_name;
 
-    const handleSelectChild = (childId: string) => {
-        router.push(`/parent/dashboard?child=${childId}`);
+    const handleSelectChild = async (childId: string) => {
+        // Prevent double loading
+        if (childId === optimisticChildId) return;
+
+        setIsLoading(true);
+        setOptimisticChildId(childId); // Switch active tab immediately
+
+        // Update URL, triggering Server Component re-fetch
+        router.push(`/parent/dashboard?child=${childId}`, { scroll: false });
     };
 
     return (
@@ -39,18 +61,17 @@ export function ParentDashboardClient({
                             Hoş Geldiniz 👋
                         </h2>
                         <p className="text-slate-500 font-medium">
-                            {displayName}'in öğrenme yolculuğunu buradan takip edebilirsiniz.
+                            {displayName}&apos;in öğrenme yolculuğunu buradan takip edebilirsiniz.
                         </p>
                     </div>
 
                     {/* Child Selector - PRD 4.9.1 */}
-                    {children.length > 1 && (
-                        <ChildSelector
-                            children={children}
-                            activeChildId={activeChild.id}
-                            onSelectChild={handleSelectChild}
-                        />
-                    )}
+                    <ChildSelector
+                        childProfiles={childProfiles}
+                        activeChildId={optimisticChildId}
+                        onSelectChild={handleSelectChild}
+                        onAddChild={() => setIsAddChildModalOpen(true)}
+                    />
                 </div>
 
                 <Link
@@ -63,51 +84,61 @@ export function ParentDashboardClient({
             </div>
 
             {/* Stats Grid - PRD 4.9.1: Show streak, XP, active lessons */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                {/* Total Materials */}
-                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center gap-5">
-                    <div className="size-14 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center">
-                        <span className="material-symbols-outlined text-3xl">library_books</span>
-                    </div>
-                    <div>
-                        <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">
-                            Toplam Materyal
-                        </p>
-                        <p className="text-3xl font-black text-slate-900 dark:text-white">
-                            {stats.totalCourses}
-                        </p>
-                    </div>
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {isLoading ? (
+                    <>
+                        <Skeleton className="h-[108px] w-full rounded-2xl" />
+                        <Skeleton className="h-[108px] w-full rounded-2xl" />
+                        <Skeleton className="h-[108px] w-full rounded-2xl" />
+                    </>
+                ) : (
+                    <>
+                        {/* Total Materials */}
+                        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center gap-5">
+                            <div className="size-14 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center">
+                                <span className="material-symbols-outlined text-3xl">library_books</span>
+                            </div>
+                            <div>
+                                <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">
+                                    Toplam Materyal
+                                </p>
+                                <p className="text-3xl font-black text-slate-900 dark:text-white">
+                                    {stats.totalCourses}
+                                </p>
+                            </div>
+                        </div>
 
-                {/* Weekly Time */}
-                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center gap-5">
-                    <div className="size-14 bg-green-50 text-green-500 rounded-2xl flex items-center justify-center">
-                        <span className="material-symbols-outlined text-3xl">timelapse</span>
-                    </div>
-                    <div>
-                        <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">
-                            Haftalık Süre
-                        </p>
-                        <p className="text-3xl font-black text-slate-900 dark:text-white">
-                            {stats.weeklyMinutes} dk
-                        </p>
-                    </div>
-                </div>
+                        {/* Weekly Time */}
+                        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center gap-5">
+                            <div className="size-14 bg-green-50 text-green-500 rounded-2xl flex items-center justify-center">
+                                <span className="material-symbols-outlined text-3xl">timelapse</span>
+                            </div>
+                            <div>
+                                <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">
+                                    Haftalık Süre
+                                </p>
+                                <p className="text-3xl font-black text-slate-900 dark:text-white">
+                                    {stats.weeklyMinutes}
+                                </p>
+                            </div>
+                        </div>
 
-                {/* Total XP */}
-                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center gap-5">
-                    <div className="size-14 bg-yellow-50 text-yellow-500 rounded-2xl flex items-center justify-center">
-                        <span className="material-symbols-outlined text-3xl">emoji_events</span>
-                    </div>
-                    <div>
-                        <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">
-                            Kazanılan XP
-                        </p>
-                        <p className="text-3xl font-black text-slate-900 dark:text-white">
-                            {stats.totalXP.toLocaleString()}
-                        </p>
-                    </div>
-                </div>
+                        {/* Total XP */}
+                        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center gap-5">
+                            <div className="size-14 bg-yellow-50 text-yellow-500 rounded-2xl flex items-center justify-center">
+                                <span className="material-symbols-outlined text-3xl">emoji_events</span>
+                            </div>
+                            <div>
+                                <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">
+                                    Kazanılan XP
+                                </p>
+                                <p className="text-3xl font-black text-slate-900 dark:text-white">
+                                    {stats.totalXP.toLocaleString()}
+                                </p>
+                            </div>
+                        </div>
+                    </>
+                )}
             </div>
 
             {/* Current Streak Badge */}
@@ -179,7 +210,13 @@ export function ParentDashboardClient({
                     </div>
                 )}
             </div>
-        </div>
+
+
+            <AddChildModal
+                open={isAddChildModalOpen}
+                onOpenChange={setIsAddChildModalOpen}
+            />
+        </div >
     );
 }
 
