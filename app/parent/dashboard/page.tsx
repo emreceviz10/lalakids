@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { ParentDashboardClient } from './client';
 import { EmptyChildState } from './empty-state';
 import { ParentHeader } from '../components/ParentHeader';
+import { ParentUploadSection } from './upload-section';
 
 export default async function ParentDashboard({
     searchParams,
@@ -106,6 +107,7 @@ export default async function ParentDashboard({
                         stats={stats}
                         recentCourses={recentCourses}
                     />
+
                 </div>
             </div>
         </>

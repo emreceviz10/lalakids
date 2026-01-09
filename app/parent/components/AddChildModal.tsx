@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ChildProfileSchema, ChildFormData } from '@/lib/validation/childSchema';
+import { ChildProfileSchema, type ChildFormData } from '@/lib/validation/childSchema';
 import { AvatarUpload } from './AvatarUpload';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
@@ -29,9 +29,10 @@ export function AddChildModal({ open, onOpenChange, onSuccess }: AddChildModalPr
         defaultValues: {
             first_name: '',
             last_name: '',
-            display_name: '',
+            date_of_birth: new Date(),
             grade_level: 1,
-            // Date default handled by input type=date usually, or explicit logic
+            display_name: '',
+            avatar_url: '',
         }
     });
 
@@ -145,7 +146,7 @@ export function AddChildModal({ open, onOpenChange, onSuccess }: AddChildModalPr
                             <Input
                                 id="date_of_birth"
                                 type="date"
-                                {...form.register('date_of_birth')}
+                                {...form.register('date_of_birth', { valueAsDate: true })}
                                 className={form.formState.errors.date_of_birth ? 'border-red-500' : ''}
                             />
                             {form.formState.errors.date_of_birth && (

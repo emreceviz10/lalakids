@@ -46,7 +46,7 @@ export function ChildSelector({ childProfiles, activeChildId, onSelectChild, onA
                                         )}
                                     >
                                         <Avatar className="size-8 rounded-full ring-2 ring-white/20">
-                                            {child.avatar_url ? (
+                                            {child.avatar_url && !child.avatar_url.includes('undefined') ? (
                                                 <AvatarImage
                                                     src={child.avatar_url}
                                                     alt={displayName}
