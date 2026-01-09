@@ -25,12 +25,12 @@ export function AddChildModal({ open, onOpenChange, onSuccess }: AddChildModalPr
     const router = useRouter();
 
     const form = useForm<ChildFormData>({
-        resolver: zodResolver(ChildProfileSchema),
+        resolver: zodResolver(ChildProfileSchema) as any,
         defaultValues: {
             first_name: '',
             last_name: '',
-            date_of_birth: new Date(),
-            grade_level: 1,
+            date_of_birth: '', // String for HTML date input
+            grade_level: '1',  // String for select
             display_name: '',
             avatar_url: '',
         }
@@ -45,13 +45,14 @@ export function AddChildModal({ open, onOpenChange, onSuccess }: AddChildModalPr
             formData.append('last_name', data.last_name);
             if (data.display_name) formData.append('display_name', data.display_name);
 
-            // Ensure date is string for FormData, API will parse/validate
-            // data.date_of_birth is Date object from Zod transform
+            // Convert date string to ISO format
             if (data.date_of_birth) {
-                formData.append('date_of_birth', data.date_of_birth.toISOString());
+                const dateObj = new Date(data.date_of_birth);
+                formData.append('date_of_birth', dateObj.toISOString());
             }
 
-            formData.append('grade_level', data.grade_level.toString());
+            // Convert grade_level to string (in case it's number)
+            formData.append('grade_level', String(data.grade_level));
 
             if (selectedFile) {
                 formData.append('avatar_file', selectedFile);
@@ -146,7 +147,7 @@ export function AddChildModal({ open, onOpenChange, onSuccess }: AddChildModalPr
                             <Input
                                 id="date_of_birth"
                                 type="date"
-                                {...form.register('date_of_birth', { valueAsDate: true })}
+                                {...form.register('date_of_birth')}
                                 className={form.formState.errors.date_of_birth ? 'border-red-500' : ''}
                             />
                             {form.formState.errors.date_of_birth && (
@@ -168,7 +169,7 @@ export function AddChildModal({ open, onOpenChange, onSuccess }: AddChildModalPr
                                 <option value={5}>5. Sınıf</option>
                             </select>
                             {form.formState.errors.grade_level && (
-                                <p className="text-xs text-red-500">{form.formState.errors.grade_level.message}</p>
+                                <p className="text-xs text-red-500">{form.formState.errors.grade_level.message as string}</p>
                             )}
                         </div>
                     </div>

@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
                 first_name: validated.first_name,
                 last_name: validated.last_name,
                 display_name: validated.display_name || null,
-                date_of_birth: validated.date_of_birth.toISOString(), // Ensure ISO string for DB
+                date_of_birth: new Date(validated.date_of_birth).toISOString(), // Ensure ISO string for DB
                 grade_level: validated.grade_level,
                 avatar_url: avatar_url,
                 role: 'student',

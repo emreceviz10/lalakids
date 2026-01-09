@@ -52,10 +52,7 @@ export function FirstTimeUserLayout({ selectedChild, childProfiles, onSelectChil
                         onUploadComplete={() => {
                             queryClient.invalidateQueries({ queryKey: ['recent-uploads', selectedChild.id] });
                             queryClient.invalidateQueries({ queryKey: ['child-stats', selectedChild.id] });
-                            router.refresh();
                         }}
-                        size="large"
-                        showDetailedHelp={true}
                     />
                 </div>
             </Card>
