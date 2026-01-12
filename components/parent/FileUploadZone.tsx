@@ -47,70 +47,104 @@ export function FileUploadZone({ studentId, onUploadComplete }: FileUploadZonePr
         // 1. Client-side validation
         const validation = validateFile(file);
         if (!validation.isValid) {
-
             toast.error("Dosya Yüklenemedi", {
                 description: validation.error?.replace('File too large', `${file.name} çok büyük`)
             });
             return;
         }
 
-        setIsUploading(true);
-        setUploadProgress(0);
-
         try {
-            // 2. Generate path
-            const fileExt = file.name.split('.').pop() || '';
-            const uniqueName = `${Date.now()}_${crypto.randomUUID()}.${fileExt}`;
-            const filePath = `uploads/${studentId}/${uniqueName}`;
+            setIsUploading(true);
+            setUploadProgress(0);
 
-            // 3. Upload with XHR for progress
-            // Since fetch doesn't support upload progress easily, we stick to XMLHttpRequest as requested in PRD
-            // OR we can use axios if available, but XHR is native.
+            // STEP 1: Get presigned URL
+            setUploadProgress(5);
+            console.log('📤 Step 1: Requesting presigned URL...');
 
-            const formData = new FormData();
-            formData.append('file', file);
+            const presignedResponse = await fetch('/api/storage/presigned-url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    fileName: file.name,
+                    fileSize: file.size,
+                    fileType: file.type,
+                }),
+            });
 
-            await new Promise<string>((resolve, reject) => {
+            if (!presignedResponse.ok) {
+                const errorData = await presignedResponse.json();
+                throw new Error(errorData.error || 'Yükleme URL\'si alınamadı');
+            }
+
+            const { presignedUrl, fileKey, publicUrl, category, extension } = await presignedResponse.json();
+            setUploadProgress(15);
+
+            // STEP 2: Upload directly to R2 using XMLHttpRequest for progress
+            console.log('📤 Step 2: Uploading to R2...');
+
+            await new Promise<void>((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
 
                 xhr.upload.addEventListener('progress', (e) => {
                     if (e.lengthComputable) {
-                        const percent = (e.loaded / e.total) * 100;
-                        setUploadProgress(percent);
+                        // Map progress from 15% to 90%
+                        const percent = 15 + ((e.loaded / e.total) * 75);
+                        setUploadProgress(Math.round(percent));
                     }
                 });
 
                 xhr.addEventListener('load', () => {
                     if (xhr.status >= 200 && xhr.status < 300) {
-                        try {
-                            const response = JSON.parse(xhr.responseText);
-                            resolve(response.url);
-                        } catch (e) {
-                            reject(new Error('Invalid JSON response'));
-                        }
+                        resolve();
                     } else {
-                        reject(new Error(xhr.statusText || 'Upload failed'));
+                        reject(new Error(`Upload failed with status: ${xhr.status}`));
                     }
                 });
 
-                xhr.addEventListener('error', () => reject(new Error('Network error')));
-                xhr.open('POST', '/api/storage/upload');
-                xhr.setRequestHeader('X-File-Path', filePath);
-                xhr.send(formData);
-            })
-                .then(async (publicUrl) => {
-                    // 4. Create record in Supabase - MOVED TO BACKEND
-                    // The backend API route now handles the DB insertion to ensure security and auto-processing.
-                    // We just need to notify the parent component to refresh.
+                xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
 
-                    toast.success("Başarılı", { description: "Dosya başarıyla yüklendi!" });
-                    onUploadComplete();
-                });
+                xhr.open('PUT', presignedUrl);
+                xhr.setRequestHeader('Content-Type', file.type);
+                xhr.send(file);
+            });
 
+            setUploadProgress(90);
+
+            // STEP 3: Notify API to create DB record
+            console.log('📤 Step 3: Creating database record...');
+
+            const dbResponse = await fetch('/api/storage/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    fileKey,
+                    publicUrl,
+                    fileName: file.name,
+                    fileSize: file.size,
+                    fileType: file.type,
+                    category,
+                    extension,
+                }),
+            });
+
+            if (!dbResponse.ok) {
+                const errorData = await dbResponse.json();
+                throw new Error(errorData.error || 'Dosya kaydı oluşturulamadı');
+            }
+
+            setUploadProgress(100);
+            toast.success("Başarılı", { description: "Dosya başarıyla yüklendi!" });
+
+            // Clear input
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
+
+            onUploadComplete();
 
         } catch (error) {
             console.error('Upload failed:', error);
-            toast.error("Hata", { description: "Dosya yüklenirken bir hata oluştu. Lütfen tekrar deneyin." });
+            toast.error("Hata", { description: error instanceof Error ? error.message : "Dosya yüklenirken bir hata oluştu" });
         } finally {
             setIsUploading(false);
             setUploadProgress(null);
@@ -187,13 +221,17 @@ export function FileUploadZone({ studentId, onUploadComplete }: FileUploadZonePr
                 </p>
             </div>
 
-            {isUploading && uploadProgress !== null && (
-                <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-slate-900/80 rounded-lg p-6">
-                    <div className="w-full max-w-xs">
-                        <UploadProgressBar progress={uploadProgress} />
-                        <p className="text-center text-sm font-medium mt-2 text-primary animate-pulse">
-                            Yükleniyor...
-                        </p>
+            {isUploading && (
+                <div className="mt-4 space-y-2 w-full max-w-md">
+                    <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600 dark:text-gray-400">Yükleniyor...</span>
+                        <span className="text-primary font-medium">{uploadProgress || 0}%</span>
+                    </div>
+                    <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+                        <div
+                            className="bg-primary h-2 rounded-full transition-all duration-300 ease-out"
+                            style={{ width: `${uploadProgress || 0}%` }}
+                        />
                     </div>
                 </div>
             )}
