@@ -1,10 +1,11 @@
-
 import { createClient } from "@/lib/supabase/server";
 import { visionModel } from "@/lib/ai/gemini";
 import { NextRequest, NextResponse } from "next/server";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { extractTextFromDocument, isTextDocument } from '@/lib/extraction/textExtractor';
+import { convertImageToJpg, requiresConversion, isImage } from '@/lib/extraction/imageConverter';
 
-export const maxDuration = 60; // Set max duration to 60 seconds for OCR processing
+export const maxDuration = 60; // Set max duration to 60 seconds
 
 interface ExtractedPage {
     pageNumber: number;
@@ -34,34 +35,64 @@ Yanıtı SADECE aşağıdaki JSON formatında ver, başka hiçbir şey ekleme:
 
 Eğer tek sayfa varsa, tek elemanlı dizi döndür.`;
 
+const ERROR_MESSAGES = {
+    UNSUPPORTED_FORMAT: 'Desteklenmeyen dosya formatı. Kabul edilen formatlar:\n' +
+        '📄 PDF: .pdf (max 50MB)\n' +
+        '📝 Belgeler: .txt, .docx, .rtf, .odt, .md (max 20MB)\n' +
+        '🖼️ Görseller: .jpg, .png, .webp, .heic, .tiff (max 10MB)',
+    HEIC_CONVERSION_FAILED: 'iPhone fotoğrafı dönüştürülemedi. Alternatif çözümler:\n' +
+        '1. Fotoğrafları Paylaş menüsünden JPG olarak dışa aktarın\n' +
+        '2. Ekran görüntüsü alın\n' +
+        '3. Fotoğraflar uygulamasında "Kopyala" yapıp yapıştırın',
+    IMAGE_CONVERSION_FAILED: 'Görsel dönüştürülemedi. Lütfen dosyayı JPG veya PNG formatında dışa aktarıp tekrar deneyin.',
+    TEXT_EXTRACTION_FAILED: 'Metin çıkarılamadı. Dosya bozuk veya desteklenmiyor olabilir. Lütfen PDF olarak kaydedip tekrar deneyin.'
+};
+
 /**
- * Attempts to extract text directly from PDF buffer using pdf-parse
+ * PDF Text Extraction using pdf-parse
  */
 async function extractTextFromPDF(buffer: Buffer): Promise<ExtractedPage[] | null> {
     try {
         console.log("[PDF-Text] Loading pdf-parse module...");
-        // Lazy load pdf-parse to avoid top-level crashes in serverless/edge environments
         // @ts-ignore
         const pdf = require('pdf-parse');
-
-        const pages: ExtractedPage[] = [];
-
         const options = {
             pagerender: async function (pageData: any) {
                 const textContent = await pageData.getTextContent();
                 let text = '';
                 let lastY;
-
                 for (let item of textContent.items) {
-                    if (lastY == item.transform[5] || !lastY) {
-                        text += item.str;
-                    }
-                    else {
-                        text += '\n' + item.str;
-                    }
+                    if (lastY == item.transform[5] || !lastY) text += item.str;
+                    else text += '\n' + item.str;
                     lastY = item.transform[5];
                 }
+                return text;
+            }
+        };
 
+        const data = await pdf(buffer, options);
+        // pdf-parse returns total text. We probably want page-by-page.
+        // The default pdf-parse logic merges everything unless we handle it carefully.
+        // For now, retaining similar logic to previous implementation which pushed to `pages` via pagerender callback.
+        // Wait, the previous implementation had logic inside pagerender pushing to `pages` array.
+        // BUT `pdf-parse` is synchronous-ish inside `pdf(buffer, options)`.
+        // I need to capture page content.
+
+        // Re-implementing the capture logic correctly from previous version:
+        // The previous version had `const pages: ExtractedPage[] = [];` in outer scope of `extractTextFromPDF`
+        // and pushed inside `pagerender`.
+
+        const pages: ExtractedPage[] = [];
+        const captureOptions = {
+            pagerender: async function (pageData: any) {
+                const textContent = await pageData.getTextContent();
+                let text = '';
+                let lastY;
+                for (let item of textContent.items) {
+                    if (lastY == item.transform[5] || !lastY) text += item.str;
+                    else text += '\n' + item.str;
+                    lastY = item.transform[5];
+                }
                 const content = text.trim();
                 if (content) {
                     pages.push({
@@ -73,22 +104,17 @@ async function extractTextFromPDF(buffer: Buffer): Promise<ExtractedPage[] | nul
             }
         };
 
-        await pdf(buffer, options);
-
+        await pdf(buffer, captureOptions);
         pages.sort((a, b) => a.pageNumber - b.pageNumber);
 
         const totalTextLength = pages.reduce((sum, p) => sum + p.content.length, 0);
-
         if (pages.length === 0 || (totalTextLength / pages.length) < 50) {
-            console.log(`[PDF-Text] Low text density (${totalTextLength} chars in ${pages.length} pages). Falling back to OCR.`);
+            console.log(`[PDF-Text] Low text density. Falling back to OCR.`);
             return null;
         }
-
-        console.log(`[PDF-Text] Successfully extracted text from ${pages.length} pages using text layer.`);
         return pages;
-
     } catch (error) {
-        console.warn("[PDF-Text] Extraction failed or module missing, falling back to Gemini:", error);
+        console.warn("[PDF-Text] Extraction failed:", error);
         return null;
     }
 }
@@ -101,50 +127,25 @@ export async function POST(
 
     try {
         const { courseId } = await params;
-        console.log("🔍 OCR Processing CourseId:", courseId);
-
         const supabase = await createClient();
 
-        // 1. Verify authentication
+        // 1. Verify Authentication & Ownership
         const { data: { user }, error: authError } = await supabase.auth.getUser();
-        if (authError || !user) {
-            console.error("❌ Auth Error:", authError);
-            return NextResponse.json(
-                { error: "Unauthorized - No valid session" },
-                { status: 401 }
-            );
-        }
+        if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        // 2. Fetch course record
         const { data: course, error: courseError } = await supabase
             .from("courses")
             .select("*")
             .eq("id", courseId)
             .single();
 
-        if (courseError || !course) {
-            console.error("❌ Course Fetch Error:", courseError);
-            return NextResponse.json(
-                { error: "Course not found" },
-                { status: 404 }
-            );
-        }
+        if (courseError || !course) return NextResponse.json({ error: "Course not found" }, { status: 404 });
+        if (course.parent_id !== user.id) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
-        // 3. Verify ownership
-        if (course.parent_id !== user.id) {
-            return NextResponse.json(
-                { error: "Unauthorized - You do not own this course" },
-                { status: 403 }
-            );
-        }
-
-        // 4. Update status
+        // Update status to processing
         await supabase.from("courses").update({ status: "ocr_processing", error_message: null }).eq("id", courseId);
 
-        // 5. Download file using Authenticated R2 Client
-        // Using correct CLOUDFLARE_ prefixed env vars
-        console.log(`[OCR] Initializing R2 Client for bucket: ${process.env.CLOUDFLARE_R2_BUCKET_NAME}`);
-
+        // 2. Download File
         const s3Client = new S3Client({
             region: "auto",
             endpoint: process.env.CLOUDFLARE_R2_ENDPOINT,
@@ -154,88 +155,112 @@ export async function POST(
             },
         });
 
-        // Parse course.original_file_url to get KEY
         const urlObj = new URL(course.original_file_url);
-        const pathParts = urlObj.pathname.split('/').filter(Boolean);
-        const fileKey = pathParts.join('/');
+        const fileKey = urlObj.pathname.split('/').filter(Boolean).join('/');
 
-        console.log("[OCR] Fetching object with Key:", fileKey);
-
-        const command = new GetObjectCommand({
+        const s3Response = await s3Client.send(new GetObjectCommand({
             Bucket: process.env.CLOUDFLARE_R2_BUCKET_NAME!,
             Key: fileKey,
-        });
+        }));
 
-        const s3Response = await s3Client.send(command);
+        if (!s3Response.Body) throw new Error("Empty file from R2");
+        const fileBuffer = Buffer.from(await s3Response.Body.transformToByteArray());
 
-        if (!s3Response.Body) {
-            throw new Error("R2 response body is empty");
+        // 3. Determine File Format
+        // Use stored file_format if available, else derive AND STORE IT if missing (migration handling)
+        let fileExtension = course.file_format || course.original_file_type;
+        if (!fileExtension || fileExtension === 'pdf' || fileExtension === 'image') {
+            // fallback to extension from key
+            fileExtension = fileKey.split('.').pop()?.toLowerCase() || '';
         }
 
-        // Convert stream to Buffer
-        const byteArray = await s3Response.Body.transformToByteArray();
-        const buffer = Buffer.from(byteArray);
-
-        console.log(`[OCR] File downloaded successfully. Size: ${buffer.length} bytes`);
+        console.log(`Processing file: ${fileKey} (${fileExtension})`);
 
         let extractedPages: ExtractedPage[] = [];
         let method = "Gemini Vision";
+        let processingMetadata = {};
 
-        // 6. Hybrid Strategy
-        if (course.original_file_type === 'pdf') {
-            console.log("[OCR] Attempting native PDF text extraction...");
-            const pdfTextPages = await extractTextFromPDF(buffer);
-
-            if (pdfTextPages && pdfTextPages.length > 0) {
-                extractedPages = pdfTextPages;
-                method = "PDF Text Layer";
+        // === ROUTE 1: Text Documents ===
+        if (isTextDocument(fileExtension)) {
+            console.log(`[Text Extraction] Processing ${fileExtension} document`);
+            try {
+                const result = await extractTextFromDocument(fileBuffer, fileExtension);
+                extractedPages = [{ pageNumber: 1, content: result.text }];
+                method = `Text Extraction (${result.format})`;
+                processingMetadata = result.metadata || {};
+            } catch (error: any) {
+                console.error("Text extraction failed:", error);
+                throw new Error(`${ERROR_MESSAGES.TEXT_EXTRACTION_FAILED} (${error.message})`);
             }
         }
 
-        // 7. Fallback to Gemini
-        if (extractedPages.length === 0) {
-            console.log("[OCR] Using Gemini Vision API...");
+        // === ROUTE 2: Images (Convert & Vision) ===
+        else if (isImage(fileExtension)) {
+            let imageBuffer = fileBuffer;
+            let mimeType = `image/${fileExtension === 'jpg' ? 'jpeg' : fileExtension}`;
 
-            if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-                console.error("❌ Missing GOOGLE_GENERATIVE_AI_API_KEY");
-                throw new Error("Missing Gemini API Key configuration");
+            if (requiresConversion(fileExtension)) {
+                console.log(`[Image Conversion] Converting ${fileExtension} -> JPG`);
+                try {
+                    const conversion = await convertImageToJpg(fileBuffer, fileExtension);
+                    imageBuffer = conversion.buffer as any;
+                    mimeType = 'image/jpeg';
+                    method = `Gemini Vision (Converted from ${fileExtension})`;
+
+                    // Upload converted file (Optional/Temporary)
+                    const convertedKey = `converted/${course.student_id}/${Date.now()}_converted.jpg`;
+                    await s3Client.send(new PutObjectCommand({
+                        Bucket: process.env.CLOUDFLARE_R2_BUCKET_NAME!,
+                        Key: convertedKey,
+                        Body: imageBuffer,
+                        ContentType: 'image/jpeg'
+                    }));
+
+                } catch (error: any) {
+                    console.error("Image conversion failed:", error);
+                    const msg = fileExtension === 'heic' ? ERROR_MESSAGES.HEIC_CONVERSION_FAILED : ERROR_MESSAGES.IMAGE_CONVERSION_FAILED;
+                    throw new Error(msg);
+                }
             }
 
-            const base64Content = buffer.toString("base64");
-            const mimeType = course.original_file_type === "pdf" ? "application/pdf" : `image/${course.original_file_type}`;
-
+            // Process with Gemini
+            console.log("[Gemini] Analyzing image...");
+            const base64Content = imageBuffer.toString("base64");
             const result = await visionModel.generateContent([
                 OCR_PROMPT,
                 { inlineData: { data: base64Content, mimeType: mimeType } }
             ]);
-
             const responseText = result.response.text();
+            extractedPages = parseGeminiResponse(responseText);
+        }
 
-            try {
-                let cleanedText = responseText.trim();
-                // Strip markdown code fences if present
-                if (cleanedText.startsWith('```json')) {
-                    cleanedText = cleanedText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-                } else if (cleanedText.startsWith('```')) {
-                    cleanedText = cleanedText.replace(/^```\s*/, '').replace(/\s*```$/, '');
-                }
-
-                extractedPages = (JSON.parse(cleanedText) as GeminiOCRResponse).pages;
-            } catch (e) {
-                console.error("Gemini Parse Error. Raw text:", responseText);
-                throw new Error("Invalid response from AI model");
+        // === ROUTE 3: PDF (Native or Vision) ===
+        else if (fileExtension === 'pdf' || !fileExtension) {
+            // 1. Try Native Text Extraction
+            const textPages = await extractTextFromPDF(fileBuffer);
+            if (textPages) {
+                extractedPages = textPages;
+                method = "PDF Text Layer";
+            } else {
+                // 2. Fallback to Gemini
+                console.log("[Gemini] Analyzing PDF...");
+                const base64Content = fileBuffer.toString("base64");
+                const result = await visionModel.generateContent([
+                    OCR_PROMPT,
+                    { inlineData: { data: base64Content, mimeType: "application/pdf" } }
+                ]);
+                extractedPages = parseGeminiResponse(result.response.text());
             }
         }
 
-        if (!extractedPages?.length) {
-            throw new Error("No content extracted from file");
+        else {
+            throw new Error(ERROR_MESSAGES.UNSUPPORTED_FORMAT);
         }
 
-        // 8. Save results
-        console.log(`[OCR] Saving ${extractedPages.length} pages...`);
+        // 4. Save Results
+        if (!extractedPages.length) throw new Error("İçerik çıkarılamadı.");
 
         await supabase.from("course_pages").delete().eq("course_id", courseId);
-
         const { error: insertError } = await supabase.from("course_pages").insert(
             extractedPages.map(p => ({
                 course_id: courseId,
@@ -249,35 +274,42 @@ export async function POST(
         await supabase.from("courses").update({
             status: "analyzing",
             page_count: extractedPages.length,
+            processing_metadata: { method, ...processingMetadata },
             updated_at: new Date().toISOString()
         }).eq("id", courseId);
 
         return NextResponse.json({
             success: true,
-            message: `Processed via ${method}`,
+            method,
             pageCount: extractedPages.length
         });
 
     } catch (error: any) {
-        console.error("❌ OCR API Critical Error:", error);
+        console.error("Processing Error:", error);
 
-        // Attempt to update DB status to error
+        // Update DB with error
         try {
-            // Only if we have courseId from params
             const { courseId } = await params;
             const supabase = await createClient();
             await supabase.from("courses").update({
                 status: "error",
-                error_message: error.message || "Unknown error",
+                error_message: error.message || "Bilinmeyen hata",
                 updated_at: new Date().toISOString()
             }).eq("id", courseId);
-        } catch (dbError) {
-            console.error("Failed to update course status to error:", dbError);
-        }
+        } catch { }
 
-        return NextResponse.json(
-            { error: error.message || "Internal Server Error" },
-            { status: 500 }
-        );
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
+
+function parseGeminiResponse(text: string): ExtractedPage[] {
+    try {
+        let cleaned = text.trim();
+        if (cleaned.startsWith('```json')) cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        else if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
+        return (JSON.parse(cleaned) as GeminiOCRResponse).pages;
+    } catch (e) {
+        console.error("Gemini Parse Error:", text);
+        throw new Error("Yapay zeka yanıtı anlaşılamadı (JSON hatası)");
     }
 }

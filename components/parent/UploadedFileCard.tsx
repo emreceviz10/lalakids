@@ -14,7 +14,7 @@ interface UploadedFileCardProps {
         id: string;
         title: string;
         original_file_name: string;
-        original_file_type: 'pdf' | 'image';
+        original_file_type: 'pdf' | 'image' | 'text';
         status: string;
         page_count?: number;
         error_message?: string;
@@ -54,6 +54,11 @@ const statusConfig = {
         label: 'Hata',
         icon: AlertCircle,
         color: 'text-red-600 bg-red-100 dark:bg-red-900/20'
+    },
+    failed: {
+        label: 'İşlem Başarısız',
+        icon: AlertCircle,
+        color: 'text-red-600 bg-red-100 dark:bg-red-900/20'
     }
 };
 
@@ -63,7 +68,17 @@ export function UploadedFileCard({ file, onStatusChange }: UploadedFileCardProps
     const [isProcessing, setIsProcessing] = useState(false);
     const [isPending, startTransition] = useTransition();
 
-    const Icon = file.original_file_type === 'pdf' ? FileText : ImageIcon;
+    const isTextDocument = (format: string) => {
+        const textFormats = ['txt', 'docx', 'rtf', 'odt', 'md', 'text'];
+        return textFormats.includes(format?.toLowerCase() || '');
+    };
+
+    const isText = isTextDocument(file.original_file_type) || isTextDocument(file.id); // fallback check if needed, but rely on props
+    // Actually the props passed 'file' has 'original_file_type' which is 'pdf' | 'image' | 'text' (after our DB update)
+    // But waiting for DB update, let's use file extension logic if available, or just trust the new type.
+    // The component might receive 'text' as type now.
+
+    const Icon = file.original_file_type === 'pdf' ? FileText : (isTextDocument(file.original_file_type) ? FileText : ImageIcon);
     // @ts-ignore - statusConfig indexing might fail strict check if status is unknown string
     const status = statusConfig[currentStatus] || statusConfig.pending;
     const StatusIcon = status.icon;
@@ -106,8 +121,30 @@ export function UploadedFileCard({ file, onStatusChange }: UploadedFileCardProps
         });
     };
 
-    const showOCRButton = currentStatus === 'pending' || currentStatus === 'error';
+    const handleRetry = async () => {
+        try {
+            setIsProcessing(true);
+            const response = await fetch(`/api/courses/${file.id}/retry-extraction`, { method: 'POST' });
+            if (!response.ok) throw new Error('Retry failed');
+            toast.success("Dosya tekrar işleniyor...");
+            window.location.reload();
+        } catch (error) {
+            console.error('Retry failed:', error);
+            toast.error("Tekrar deneme başarısız");
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+
+
+    const handleConvertToPDF = () => {
+        toast.info('Lütfen dosyayı Word veya LibreOffice\'te açıp "PDF olarak kaydet" seçeneğini kullanın.');
+    };
+
+    const showOCRButton = (currentStatus === 'pending' || currentStatus === 'error') && !isTextDocument(file.original_file_type);
     const showRetry = currentStatus === 'error';
+
 
     return (
         <Card className="p-4 hover:shadow-md transition-shadow group border-slate-200 dark:border-slate-800">
@@ -131,7 +168,31 @@ export function UploadedFileCard({ file, onStatusChange }: UploadedFileCardProps
                                 • {pageCount} sayfa
                             </span>
                         )}
+
+                        {/* Status Text for Text Docs */}
+                        {currentStatus === 'pending' && isText && (
+                            <span className="text-xs text-blue-500 font-medium animate-pulse">
+                                • Otomatik işleniyor...
+                            </span>
+                        )}
                     </div>
+
+                    {/* Error UI */}
+                    {currentStatus === 'failed' && (
+                        <div className="mt-2 p-2 bg-red-50 rounded border border-red-100">
+                            <p className="text-xs text-red-600 font-medium mb-1">
+                                {file.error_message || "Dosya işlenemedi"}
+                            </p>
+                            <div className="flex gap-2">
+                                <Button variant="destructive" size="sm" className="h-6 text-[10px] px-2" onClick={handleRetry} disabled={isProcessing}>
+                                    Tekrar Dene
+                                </Button>
+                                <Button variant="secondary" size="sm" className="h-6 text-[10px] px-2" onClick={handleConvertToPDF}>
+                                    PDF Çözümü
+                                </Button>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* OCR Button */}
@@ -168,6 +229,6 @@ export function UploadedFileCard({ file, onStatusChange }: UploadedFileCardProps
                     <span className="hidden sm:inline">{status.label}</span>
                 </div>
             </div>
-        </Card>
+        </Card >
     );
 }

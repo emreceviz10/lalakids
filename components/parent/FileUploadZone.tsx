@@ -3,7 +3,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { UploadCloud, FileText, Image as ImageIcon, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { validateFile, formatFileSize, FILE_LIMITS } from '@/lib/utils/fileValidation';
+import { validateFile, formatFileSize, FILE_LIMITS, getFileCategory } from '@/lib/utils/fileValidation';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { UploadProgressBar } from './UploadProgressBar';
@@ -99,30 +99,9 @@ export function FileUploadZone({ studentId, onUploadComplete }: FileUploadZonePr
                 xhr.send(formData);
             })
                 .then(async (publicUrl) => {
-                    // 4. Create record in Supabase
-                    // We need a client-side supabase client.
-                    const { createClient } = await import('@/lib/supabase/client'); // Assuming client component usage
-                    const supabase = createClient();
-
-                    const { data: { user } } = await supabase.auth.getUser();
-                    if (!user) throw new Error('User not authenticated');
-
-                    const { error: dbError } = await supabase
-                        .from('courses')
-                        .insert({
-                            parent_id: user.id,
-                            student_id: studentId,
-                            title: file.name.replace(/\.[^/.]+$/, ''),
-                            original_file_url: publicUrl,
-                            original_file_name: file.name,
-                            original_file_type: file.type.includes('pdf') ? 'pdf' : 'image',
-                            status: 'pending',
-                            subject: 'other',
-                            grade_level: 1 // Default or fetch from student
-                            // ideally we fetch student grade but for now strict to PRD snippet logic or defaulting
-                        });
-
-                    if (dbError) throw dbError;
+                    // 4. Create record in Supabase - MOVED TO BACKEND
+                    // The backend API route now handles the DB insertion to ensure security and auto-processing.
+                    // We just need to notify the parent component to refresh.
 
                     toast.success("Başarılı", { description: "Dosya başarıyla yüklendi!" });
                     onUploadComplete();
@@ -173,7 +152,7 @@ export function FileUploadZone({ studentId, onUploadComplete }: FileUploadZonePr
                 type="file"
                 ref={fileInputRef}
                 className="hidden"
-                accept=".pdf,.jpg,.jpeg,.png"
+                accept=".pdf,.jpg,.jpeg,.png,.txt,.docx,.rtf,.odt,.md,.webp,.heic,.tiff,.tif"
                 onChange={handleFileSelect}
                 multiple={false}
             />
@@ -191,10 +170,10 @@ export function FileUploadZone({ studentId, onUploadComplete }: FileUploadZonePr
 
                 <div className="space-y-1">
                     <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                        Ders Kitabı veya Notları Yükle
+                        Ders Kitabı, Notlar veya Fotoğraflar Yükle
                     </p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                        PDF, JPG veya PNG dosyalarını buraya sürükleyin
+                        PDF, Word, Notlar veya Fotoğraflar (iPhone dahil)
                     </p>
                 </div>
 
@@ -202,8 +181,9 @@ export function FileUploadZone({ studentId, onUploadComplete }: FileUploadZonePr
                     Bilgisayardan Seç
                 </Button>
 
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 max-w-xs">
-                    Kabul edilen formatlar: PDF (max 50MB), JPG/PNG (max 10MB)
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 max-w-xs leading-tight">
+                    Formatlar: PDF, Word, Metin (max 50-20MB)<br />
+                    Görseller: JPG, PNG, HEIC, WebP (max 10MB)
                 </p>
             </div>
 
