@@ -124,6 +124,7 @@ export function FileUploadZone({ studentId, onUploadComplete }: FileUploadZonePr
                     fileType: file.type,
                     category,
                     extension,
+                    studentId, // Pass studentId to link course to child
                 }),
             });
 

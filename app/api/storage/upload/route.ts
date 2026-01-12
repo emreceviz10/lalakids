@@ -25,11 +25,12 @@ export async function POST(request: NextRequest) {
             fileType,
             category,
             extension,
+            studentId,
         } = body;
 
-        if (!fileKey || !publicUrl || !fileName) {
+        if (!fileKey || !publicUrl || !fileName || !studentId) {
             return NextResponse.json(
-                { error: 'Dosya bilgileri eksik' },
+                { error: 'Dosya bilgileri veya öğrenci ID eksik' },
                 { status: 400 }
             );
         }
@@ -43,6 +44,11 @@ export async function POST(request: NextRequest) {
             .from('courses')
             .insert({
                 parent_id: user.id,
+                student_id: studentId,
+                title: fileName.replace(/\.[^/.]+$/, ''), // Remove extension for title
+                description: null,
+                subject: null, // Will be detected by AI in Task #6
+                grade_level: null, // Will be detected by AI in Task #6
                 original_file_name: fileName,
                 original_file_url: publicUrl,
                 file_format: extension,
@@ -63,7 +69,7 @@ export async function POST(request: NextRequest) {
         if (courseError) {
             console.error('Database insert error:', courseError);
             return NextResponse.json(
-                { error: 'Veritabanı kaydı oluşturulamadı' },
+                { error: `Database Error: ${courseError.message} (${courseError.details || 'no details'})` },
                 { status: 500 }
             );
         }
